@@ -1,24 +1,19 @@
 import cv2
 import numpy as np
 import pandas as pd
-import scipy
 from scipy.misc import imread
 from PIL import ImageEnhance, ImageFilter
-import random
-import os
 import matplotlib.pyplot as plt
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 from moviepy.editor import VideoFileClip
-import shutil
 from PIL import Image
-from tqdm import tqdm
-from sklearn.metrics import classification_report
-from sklearn.decomposition import PCA
-import seaborn as sns
 import skimage
 from random import uniform
 from sklearn.preprocessing import normalize
 from skimage import exposure
+import os
+import av
+import shutil
 
 def rgb_to_bgr(image):
     return image[:, :, ::-1].copy() 
@@ -30,13 +25,21 @@ def plot_img_file(path):
     img = imread(path, mode="RGB")
     show_img(img)
 
+
+def equalize(img):
+    img = np.array(img)
+    for channel in range(img.shape[2]):  # equalizing each channel
+        img[:, :, channel] = exposure.equalize_hist(img[:, :, channel])
+    return img
+
 def preprocess_image_load(image):
     image = image.resize((600, 600))
-    image = skimage.img_as_ubyte(exposure.equalize_hist(np.array(image)))
+    image = skimage.img_as_ubyte(equalize(image))
     return np.array(image)
 
 def preprocess_image(image):
     image = image.resize((600, 600))
+    image = skimage.img_as_ubyte(equalize(image))
     return np.array(image)
 
 def draw_video_frame(path, index):
@@ -50,9 +53,6 @@ def draw_video_frame(path, index):
     vid.release()
     if not ret:
         raise Exception("Failed to retrieve frame")
-
-#def normalize(arr):
-#   return arr/arr.sum()
 
 def normalize_l1(arr):
     return normalize(arr.reshape(1 ,-1), 'l1').flatten()
@@ -246,6 +246,132 @@ def restore_image(img):
 
     img = np.array(img)
     #img = denoise_tv_chambolle(img, multichannel=True)
-    img = exposure.equalize_hist(img)
+    img = equalize(img)
     return skimage.img_as_ubyte(img)
 
+
+def get_video_rows(path, feature_extractor, preprocessor, write_frames_dir=None):
+    frames_path = None
+    if write_frames_dir:
+        frames_path = os.path.join(write_frames_dir,
+                                   os.path.basename(path) + '_frames')
+        if os.path.exists(frames_path):
+            shutil.rmtree(frames_path)
+        os.makedirs(frames_path)
+
+    rows = []
+    video_name = os.path.basename(path)
+
+    container = av.open(path)
+
+    stream = container.streams.video[0]
+    stream.codec_context.skip_frame = 'NONKEY'
+    for frame in container.decode(stream):
+        img = frame.to_image()
+        img = preprocessor(img)
+        features = feature_extractor(rgb_to_bgr(np.array(img)))
+        row = [path, frame.time]  # metadata, features
+        for i in range(len(features)):
+            row.append(features[i])
+        rows.append(tuple(row))
+        if frames_path:
+            fpath = os.path.join(frames_path, '{}.jpg'.format(str(frame.pts)))
+            Image.fromarray(img).save(fpath)
+    return rows
+
+
+def get_dataframe(fpaths, feature_extractor, preprocessor=preprocess_image_load,
+                  write_frames_dir=None):
+    rows = []
+    i = 0
+    for fpath in fpaths:
+        video_rows = get_video_rows(fpath, feature_extractor=feature_extractor,
+                                    preprocessor=preprocessor,
+                                    write_frames_dir=write_frames_dir)
+        rows += video_rows
+        i += 1
+        print('Done ' + str(round(float(i) / len(fpaths), 2)))
+
+    cols = ['video_path', 'frame_time']
+    for i in range(len(rows[0]) - 2):
+        cols.append('x_' + str(i))
+    df = pd.DataFrame(rows, columns=cols, index=range(len(rows)))
+    return df
+
+
+def make_subclips(in_path, out_dir, number_subclips=1, subclip_duration=10):
+    actual_video_name = os.path.basename(in_path)
+
+    subclips_dir = os.path.join(out_dir, actual_video_name + '_subclips')
+    if os.path.exists(subclips_dir):
+        shutil.rmtree(subclips_dir)
+    os.makedirs(subclips_dir)
+
+    container = VideoFileClip(in_path)
+
+    duration = container.duration
+
+    fnames = []
+    for i in range(number_subclips):
+        subclip_start_time = np.random.randint(0, duration - subclip_duration - 1)
+        subclip_range = (subclip_start_time, subclip_start_time + subclip_duration)
+        subclip_fname = os.path.join(subclips_dir, str(subclip_range) + '.' +
+                                     actual_video_name.split('.')[-1])
+        ffmpeg_extract_subclip(in_path, subclip_range[0], subclip_range[1],
+                               targetname=subclip_fname)
+        fnames.append(subclip_fname)
+    return fnames
+
+
+def preprocess_corrupt(image, params):
+    image = image.resize((600, 600))
+    image = restore_image(corrupt(image, *params))
+    return image
+
+
+def get_corrupted_dataframe(fpaths, feature_extractor,
+                            preprocessor=preprocess_image, write_frames_dir=None):
+    rows = []
+    i = 0
+    for fpath in fpaths:
+        cparams = random_corrupt_params()
+
+        def video_frame_corrupt(img):
+            return preprocess_corrupt(img, cparams)
+
+        video_rows = get_video_rows(fpath, feature_extractor=feature_extractor,
+                                    preprocessor=video_frame_corrupt,
+                                    write_frames_dir=write_frames_dir)
+        rows += video_rows
+        i += 1
+        print('Done ' + str(round(float(i) / len(fpaths), 2)))
+
+    cols = ['video_path', 'frame_time']
+    for i in range(len(rows[0]) - 2):
+        cols.append('x_' + str(i))
+    df = pd.DataFrame(rows, columns=cols, index=range(len(rows)))
+    return df
+
+
+def get_subclip_dataframe(fpaths, feature_extractor, subclip_dir,
+                          remove_subclips=True, number_subclips=10,
+                          subclip_duration=10):
+    dfs = []
+    for fpath in fpaths:
+        subclip_corruption = random_corrupt_params()
+        subclip_fnames = make_subclips(fpath, subclip_dir,
+                                       number_subclips=number_subclips,
+                                       subclip_duration=subclip_duration)
+
+        subclip_df = get_corrupted_dataframe(subclip_fnames,
+                                             feature_extractor=feature_extractor)
+        subclip_df['source_fpath'] = fpath
+        dfs.append(subclip_df)
+        if remove_subclips:
+            for fname in subclip_fnames:
+                if os.path.exists(fname):
+                    os.remove(fname)
+            os.rmdir(os.path.dirname(fname))
+
+    df = pd.concat(dfs, axis=0)
+    return df
