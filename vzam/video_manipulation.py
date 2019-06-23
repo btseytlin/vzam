@@ -6,6 +6,8 @@ from moviepy.editor import VideoFileClip
 import os
 import shutil
 
+from vzam.util import ffmpeg
+
 
 def draw_video_frame(path, index):
     vid = cv2.VideoCapture(path)
@@ -42,3 +44,21 @@ def make_subclips(in_path, out_dir, number_subclips=1, subclip_duration=10):
                                targetname=subclip_fname)
         fnames.append(subclip_fname)
     return fnames
+
+
+def resize_and_set_framerate(in_path, out_path, size, framerate):
+    options = '-i "{input}" -r {fps} -vf scale={width}:{height} "{output}"'.format(
+        input=in_path,
+        output=out_path,
+        width=size[0],
+        height=size[1],
+        fps=framerate,
+    )
+    return ffmpeg(options)
+
+
+def preprocess_video(video_fpath, out_video_fpath,
+                     resize=(256, 256),
+                    target_framerate=10):
+    resize_and_set_framerate(video_fpath, out_video_fpath,
+                             size=resize, framerate=target_framerate)

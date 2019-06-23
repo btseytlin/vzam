@@ -5,6 +5,47 @@ from PIL import Image
 import skimage
 from random import uniform
 from skimage import exposure
+import av
+
+
+def exponentially_weighted_average(arrays, gamma):
+    """
+    :param arrays: list of grayscale images, intensities expected to be in range [0, 1]
+    :param gamma:
+    :return:
+    """
+    arr = np.zeros(arrays[0].shape, np.float)
+    for array in arrays:
+        arr += np.power(gamma, array)*array / len(arrays)
+    return arr
+
+
+def extract_tiri(video_fpath,
+                 buffer_size=20,
+                 gamma=1.65):
+    """
+    :param video_fpath: str, path to video file
+    :param buffer_size: int, amount of images to average
+    :param gamma: float, exponential weighting parameter
+    :return:
+    """
+    container = av.open(video_fpath)
+
+    stream = container.streams.video[0]
+    frame_idx = 0
+    tiris = []
+    timestamps = []
+
+    buffer_images = []
+    for frame in container.decode(stream):
+        img = np.array(frame.to_image().convert('L')) / 256
+        buffer_images.append(img)
+        if (frame_idx + 1) % buffer_size == 0:
+            tiri = exponentially_weighted_average(buffer_images, gamma)
+            tiris.append(tiri)
+            timestamps.append(round(frame.time,3))
+            buffer_images = []
+    return tiris, timestamps
 
 
 def rgb_to_bgr(image):
