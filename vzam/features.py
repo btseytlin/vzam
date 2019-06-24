@@ -125,3 +125,37 @@ def joint_feature_extractor(image, k_points=2, bins=[4, 5, 5]):
     ds = extract_descriptors(img, k_points, norm=False)
     features = np.concatenate([hist_features, ds])
     return normalize_l1(features)
+
+def rHash(image, hash_size=64):
+    image = np.asarray(image)
+    
+    n_blocks_w = np.sqrt(hash_size)
+    n_blocks_h = np.sqrt(hash_size)
+    
+    block_width = int(len(image)//n_blocks_w)
+    block_height = int(len(image)//n_blocks_h)
+    
+    assert image.shape[0] % n_blocks_w == 0
+    assert image.shape[1] % n_blocks_h == 0
+    
+    block_means = []
+    for i in range(0, len(image), block_height):
+        for j in range(0, image.shape[1], block_width):
+            mean = np.mean(image[i:i+block_height,j:j+block_width])
+            block_means.append(mean)
+    fingerprint = np.array(block_means) >= np.median(block_means)
+    return fingerprint.astype(int)
+
+
+def quandrant_rHash(image, hash_size=64):
+    image = np.asarray(image)
+    mid_x = len(image) // 2
+    mid_y = image.shape[1] // 2
+
+    hsize = hash_size // 4
+    fingerprints = []
+    fingerprints.append(rHash(image[0:mid_x,0:mid_y],  hsize))
+    fingerprints.append(rHash(image[mid_x:,0:mid_y],  hsize))
+    fingerprints.append(rHash(image[0:mid_x,mid_y:],  hsize))
+    fingerprints.append(rHash(image[mid_x:,mid_y:],  hsize))
+    return np.hstack(fingerprints)

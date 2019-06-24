@@ -5,9 +5,10 @@ import os
 import av
 import shutil
 
-from vzam.image_manipulation import random_corrupt_params, corrupt, rgb_to_bgr
+from vzam.image_manipulation import random_corrupt_params, corrupt, rgb_to_bgr, exponentially_weighted_average
 from vzam.pipeline import preprocess_image_load
 from vzam.video_manipulation import make_subclips
+from vzam.features import rHash, quandrant_rHash
 
 
 def get_video_rows(path,
@@ -140,4 +141,52 @@ def get_subclip_dataframe(fpaths,
             os.rmdir(os.path.dirname(fname))
 
     df = pd.concat(dfs, axis=0)
+    return df
+
+
+def extract_tiri_rhashes(video_fpath,
+                 buffer_size=15,
+                 gamma=1.65,
+                 hash_size=64):
+    """
+    :param video_fpath: str, path to video file
+    :param buffer_size: int, amount of images to average
+    :param gamma: float, exponential weighting parameter
+    :return:
+    """
+    container = av.open(video_fpath)
+
+    stream = container.streams.video[0]
+    frame_idx = 0
+    rhashes = []
+    timestamps = []
+
+    buffer_images = []
+    for frame in container.decode(stream):
+        frame_idx+=1
+        img = np.array(frame.to_image().convert('L')) / 256
+        buffer_images.append(img)
+        
+        if len(buffer_images) == buffer_size:
+            tiri = exponentially_weighted_average(buffer_images, gamma)
+            rhashes.append(quandrant_rHash(tiri, hash_size=hash_size))
+            timestamps.append(round(frame.time,3))
+            buffer_images = []
+        if frame_idx % 10000 == 0:
+            print(frame_idx)
+    return rhashes, timestamps
+
+def get_rhash_df(fpaths, buffer_size=15, hash_size=64):
+    df = None
+    for video_path in fpaths:
+        print(video_path)
+        video_rhashes, video_timestamps = extract_tiri_rhashes(video_path, buffer_size=buffer_size, hash_size=hash_size)
+        video_id = os.path.basename(video_path)
+        
+        video_df = pd.DataFrame({'feature': video_rhashes, 'ts': video_timestamps})
+        video_df['id'] = video_id
+        if df is None:
+            df = video_df
+        else:
+            df = pd.concat([df, video_df], axis=0,  ignore_index=True)
     return df

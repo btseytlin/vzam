@@ -7,4 +7,6 @@ pillow
 seaborn
 moviepy
 scikit-image
-pyav
+av
+opencv-contrib-python
+faiss
