@@ -69,10 +69,9 @@ def histogram(image, mask, bins, channels=[0, 1, 2],
 
 def add_gaussian_noise(image, mean=0, var=0.1):
     image = np.array(image)
-    row, col, ch = image.shape
     sigma = var ** 0.5
-    gauss = np.random.normal(mean, sigma, (row, col, ch))
-    gauss = gauss.reshape(row, col, ch)
+    gauss = np.random.normal(mean, sigma, (image.shape))
+    gauss = gauss.reshape(image.shape)
     noisy = image + gauss
     return noisy.astype(image.dtype)
 

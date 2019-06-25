@@ -141,6 +141,31 @@ class FaissRhashVideoSearcher:
         moc = moc[1]
         return moc, votes, timestamps, min_dists, min_indices
 
+    def lookup_sequence(self, vectors):
+        vectors = np.asarray(vectors).astype('uint8')
+        D, I = self.index.search(vectors, 10)
+        labels = self.labels[I]
+        timestamps = self.timestamps.values[I]
+
+        sequence_starts = I[0]
+        candidates = []
+        for i, start_index in enumerate(sequence_starts):
+            dist = D[0][i]
+            if dist > self.dist_threshold:
+                continue
+            candidate = {'query_vec': 0,
+                         'dist': D[0][i],
+                         'label': labels[0][i],
+                         'ts': timestamps[0][i],
+                         }
+            candidates.append(candidate)
+
+        sequences = []
+        data_df = pd.DataFrame({'vector': vectors, 'label': labels})
+        for candidate in candidates:
+            # Extract sequence for that candidate
+            pass
+
     def lookup_fun(self, vectors, conf_threshold=0.7):
         vectors = np.asarray(vectors).astype('uint8')
         D, I = self.index.search(vectors, 10)
