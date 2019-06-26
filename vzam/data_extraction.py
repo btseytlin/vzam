@@ -167,21 +167,24 @@ def extract_tiri_rhashes(video_fpath,
         frame_idx+=1
         timestamp = round(frame.time, 3)
         img = np.array(frame.to_image().convert('L'))
-        buffer_images.append(img / 256)
+        buffer_images.append(img)
         if len(buffer_images) == buffer_size:
-            tiri = exponentially_weighted_average(buffer_images, gamma) * 256
+#             print(img)
+            tiri = exponentially_weighted_average(buffer_images, gamma)
+#             print(tiri*256)
             hash_vec = quandrant_rHash(tiri, hash_size=hash_size)
             rhashes.append(hash_vec)
             if write_frames_dir:
-                Image.fromarray(tiri*256).convert('L').save(write_frames_dir +'/'+ str(timestamp)+'.jpg', "JPEG")
+                Image.fromarray(tiri).convert('L').save(write_frames_dir +'/'+ str(timestamp)+'_tiri.jpg', "JPEG")
 #                 Image.fromarray(img).convert('L').save(write_frames_dir +'/'+ str(timestamp)+'img.jpg', "JPEG")
 #                 Image.fromarray(hash_vec.reshape((10, 10)), mode='1').resize(img.shape, resample=0).save(write_frames_dir +'/'+ str(timestamp)+'_hash.jpg', "JPEG")
-                # plt.imsave(write_frames_dir +'/'+ str(timestamp)+'_hash.jpg', scipy.misc.imresize(hash_vec.reshape(10, 10), img.shape, interp='nearest'), cmap='gray')
+                plt.imsave(write_frames_dir +'/'+ str(timestamp)+'_hash.jpg', scipy.misc.imresize(hash_vec.reshape(10, 10), img.shape, interp='nearest'), cmap='gray')
             timestamps.append(timestamp)
             buffer_images = []
 
         if frame_idx % 10000 == 0:
             print(frame_idx)
+
     return rhashes, timestamps
 
 def get_rhash_df(fpaths, buffer_size=15, hash_size=64,  write_frames_dir=None):
