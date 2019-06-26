@@ -147,7 +147,8 @@ def get_subclip_dataframe(fpaths,
 def extract_tiri_rhashes(video_fpath,
                  buffer_size=15,
                  gamma=1.65,
-                 hash_size=64):
+                 hash_size=64,
+                 write_frames_dir=None):
     """
     :param video_fpath: str, path to video file
     :param buffer_size: int, amount of images to average
@@ -164,23 +165,35 @@ def extract_tiri_rhashes(video_fpath,
     buffer_images = []
     for frame in container.decode(stream):
         frame_idx+=1
-        img = np.array(frame.to_image().convert('L')) / 256
-        buffer_images.append(img)
-        
+        timestamp = round(frame.time, 3)
+        img = np.array(frame.to_image().convert('L'))
+        buffer_images.append(img / 256)
         if len(buffer_images) == buffer_size:
-            tiri = exponentially_weighted_average(buffer_images, gamma)
-            rhashes.append(quandrant_rHash(tiri, hash_size=hash_size))
-            timestamps.append(round(frame.time,3))
+            tiri = exponentially_weighted_average(buffer_images, gamma) * 256
+            hash_vec = quandrant_rHash(tiri, hash_size=hash_size)
+            rhashes.append(hash_vec)
+            if write_frames_dir:
+                Image.fromarray(tiri*256).convert('L').save(write_frames_dir +'/'+ str(timestamp)+'.jpg', "JPEG")
+#                 Image.fromarray(img).convert('L').save(write_frames_dir +'/'+ str(timestamp)+'img.jpg', "JPEG")
+#                 Image.fromarray(hash_vec.reshape((10, 10)), mode='1').resize(img.shape, resample=0).save(write_frames_dir +'/'+ str(timestamp)+'_hash.jpg', "JPEG")
+                # plt.imsave(write_frames_dir +'/'+ str(timestamp)+'_hash.jpg', scipy.misc.imresize(hash_vec.reshape(10, 10), img.shape, interp='nearest'), cmap='gray')
+            timestamps.append(timestamp)
             buffer_images = []
+
         if frame_idx % 10000 == 0:
             print(frame_idx)
     return rhashes, timestamps
 
-def get_rhash_df(fpaths, buffer_size=15, hash_size=64):
+def get_rhash_df(fpaths, buffer_size=15, hash_size=64,  write_frames_dir=None):
     df = None
     for video_path in fpaths:
         print(video_path)
-        video_rhashes, video_timestamps = extract_tiri_rhashes(video_path, buffer_size=buffer_size, hash_size=hash_size)
+        video_frames_dir = None
+        if write_frames_dir:
+            video_frames_dir = os.path.join(write_frames_dir, os.path.basename(video_path).split('.')[0])
+            if not os.path.exists(video_frames_dir):
+                os.mkdir(video_frames_dir)
+        video_rhashes, video_timestamps = extract_tiri_rhashes(video_path, buffer_size=buffer_size, hash_size=hash_size, write_frames_dir=video_frames_dir)
         video_id = os.path.basename(video_path)
         
         video_df = pd.DataFrame({'feature': video_rhashes, 'ts': video_timestamps})
