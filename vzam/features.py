@@ -126,6 +126,7 @@ def joint_feature_extractor(image, k_points=2, bins=[4, 5, 5]):
     features = np.concatenate([hist_features, ds])
     return normalize_l1(features)
 
+
 def rHash(image, hash_size=64):
     image = np.asarray(image)
     

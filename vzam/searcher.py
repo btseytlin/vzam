@@ -1,6 +1,7 @@
 import faiss
 import numpy as np
 import pandas as pd
+import scipy
 
 
 def clear_label_df(label_df):
@@ -55,7 +56,7 @@ class FaissVideoSearcher:
         self.timestamps = timestamps
         self.dist_threshold = dist_threshold
 
-    def lookup(self, vectors, dist_threshold=None):
+    def lookup_mv(self, vectors, dist_threshold=None):
         """
         Majority vote
         """
@@ -74,7 +75,7 @@ class FaissVideoSearcher:
         moc = moc[1]
         return moc, votes, min_dists, min_indices
 
-    def lookup_fun(self, vectors, conf_threshold=0.7):
+    def lookup(self, vectors, conf_threshold=0.7):
         vectors = np.ascontiguousarray(vectors.astype('float32'))
         faiss.normalize_L2(vectors)
         vectors = np.ascontiguousarray(vectors)
@@ -128,7 +129,7 @@ class FaissRhashVideoSearcher:
         self.index.train(self.vectors)
         self.index.add(self.vectors)
 
-    def lookup(self, vectors):
+    def lookup_mv(self, vectors):
         vectors = np.asarray(vectors).astype('uint8')
         D, I = self.index.search(vectors, 1)
         min_indices, min_dists = I.flatten(), D.flatten()
@@ -141,32 +142,7 @@ class FaissRhashVideoSearcher:
         moc = moc[1]
         return moc, votes, timestamps, min_dists, min_indices
 
-    def lookup_sequence(self, vectors):
-        vectors = np.asarray(vectors).astype('uint8')
-        D, I = self.index.search(vectors, 10)
-        labels = self.labels[I]
-        timestamps = self.timestamps.values[I]
-
-        sequence_starts = I[0]
-        candidates = []
-        for i, start_index in enumerate(sequence_starts):
-            dist = D[0][i]
-            if dist > self.dist_threshold:
-                continue
-            candidate = {'query_vec': 0,
-                         'dist': D[0][i],
-                         'label': labels[0][i],
-                         'ts': timestamps[0][i],
-                         }
-            candidates.append(candidate)
-
-        sequences = []
-        data_df = pd.DataFrame({'vector': vectors, 'label': labels})
-        for candidate in candidates:
-            # Extract sequence for that candidate
-            pass
-
-    def lookup_fun(self, vectors, conf_threshold=0.7):
+    def lookup(self, vectors, conf_threshold=0.7):
         vectors = np.asarray(vectors).astype('uint8')
         D, I = self.index.search(vectors, 10)
 
@@ -199,3 +175,46 @@ class FaissRhashVideoSearcher:
             predictions.append((label, confidence, mean_dist))
         predictions = sorted(predictions, key=lambda x: (-x[1], x[2]))
         return predictions
+
+    def lookup_sequence(self, vectors):
+        vectors = np.asarray(vectors).astype('uint8')
+        D, I = self.index.search(vectors, 10)
+
+        sequence_starts = I[0]
+        candidates = []
+        for i, start_index in enumerate(sequence_starts):
+            dist = D[0][i]
+            if dist > self.dist_threshold:
+                continue
+            candidate = {'start_index': start_index,
+                         'dist': dist,
+                         'label': self.labels[start_index],
+                         'ts': self.timestamps.values[start_index],
+                         }
+            candidates.append(candidate)
+
+        seq_candidates = []
+        for candidate in candidates:
+            # Extract sequence for that candidate
+            index_seq = slice(candidate['start_index'] + 1,
+                              candidate['start_index'] + len(vectors) - 1)
+            label_sequence = self.labels[index_seq]
+            if len(np.unique(label_sequence)) != 1:
+                # print('impossible candidate', candidate)
+                # print(label_sequence)
+                continue
+
+            source_vectors = self.vectors[index_seq]
+            distances = []
+            for qv, v in zip(vectors, source_vectors):
+                distances.append(scipy.spatial.distance.hamming(qv, v))
+            total_dist = (candidate['dist'] / len(vectors[0]) + sum(
+                distances)) / len(vectors)
+            seq_candidates.append({
+                'start_index': candidate['start_index'],
+                'ts': candidate['ts'],
+                'label': candidate['label'],
+                'dist': total_dist,
+            })
+        seq_candidates = sorted(seq_candidates, key=lambda x: x['dist'])
+        return seq_candidates
