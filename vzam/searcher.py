@@ -114,17 +114,17 @@ class FaissVideoSearcher:
 
 class FaissRhashVideoSearcher:
 
-    def __init__(self, vectors, labels, timestamps, dist_threshold=10):
-        self.d = d = vectors.shape[1]
+    def __init__(self, vectors, labels, timestamps, dist_threshold=10, ncells=0.05):
+        self.d = d = vectors.shape[1] * 8
         self.vectors = vectors.astype('uint8')
         self.labels = labels
         self.timestamps = timestamps
         self.dist_threshold = dist_threshold
-        self.index = faiss.IndexBinaryFlat(self.vectors.shape[1] * 8)
+        # self.quantizer = faiss.IndexBinaryFlat(self.d)
         # self.index = faiss.IndexIVFFlat(self.quantizer,
-        #                                 self.vectors.shape[1],
+        #                                 self.d,
         #                                 int(ncells * len(self.vectors)))
-        # self.index = faiss.index_binary_factory(d, "BIVF32")
+        self.index = faiss.index_binary_factory(self.d, "BIVF32")
 
         self.index.train(self.vectors)
         self.index.add(self.vectors)
